@@ -6,6 +6,11 @@ interface Event{}
 
 @interface Subscribe{}
 
+interface EventHandler<T extends Event> 
+{
+    void handle(T event);
+}
+
 class EventBusImpl 
 {
     private static EventBusImpl instance = null;
@@ -45,25 +50,83 @@ class EventBusImpl
 
     public void post(Event event)
     {
-        List<Subscription> subList = subscribers.get(event.getClass());
+        Class<?> eventType = event.getClass();
+        List<Subscription> subList = new ArrayList<>();
+        subList.addAll(subscribers.getOrDefault(eventType, new ArrayList<>()));
+
+        for(Map.Entry<Class<?>, List<Subscription>> entry : subscribers.entrySet())
+        {
+            if(entry.getKey().isAssignableFrom(eventType) && !entry.getKey().equals(eventType))
+            {
+                subList.addAll(entry.getValue());
+            }
+        }
+        
         if(subList!=null)
         {
             for(Subscription sub : subList)
             {
-                try
+                if(sub.getMethod()!=null)
                 {
-                    sub.getMethod().invoke(sub.getSubscriber(), event);
+                    try
+                    {
+                        sub.getMethod().setAccessible(true);
+                        sub.getMethod().invoke(sub.getSubscriber(), event);
+                    }
+                    catch(IllegalAccessException | InvocationTargetException e)
+                    {
+                        e.printStackTrace();
+                    }
                 }
-                catch(IllegalAccessException e) 
+                else if(sub.getHandler()!=null)
                 {
-                    e.printStackTrace();
-                }
-                catch(InvocationTargetException e)
-                {
-                    e.printStackTrace();
+                    EventHandler<Event> handler=(EventHandler<Event>)sub.getHandler();
+                    if(handler!=null)
+                    {
+                        handler.handle(event);
+                    }
                 }
             }
         }
+        
+
+        for(Map.Entry<Class<?>, List<Subscription>> entry : subscribers.entrySet())
+        {
+            if(entry.getKey().isAssignableFrom(eventType) && !entry.getKey().equals(eventType))
+            {
+                for(Subscription sub : entry.getValue())
+                {
+                    try
+                    {
+                        sub.getMethod().setAccessible(true);
+                        sub.getMethod().invoke(sub.getSubscriber(), event);
+                    }
+                    catch(IllegalAccessException | InvocationTargetException e)
+                    {
+                        e.printStackTrace();
+                    }
+                }
+            }
+        }
+
+        System.out.println("Posting event: " + event.getClass().getName());
+        System.out.println("Subscribers found: " + subList.size());
+        for (Subscription sub : subList) 
+        {
+            System.out.println(" -> Notifying: " + sub.getSubscriber().getClass().getName());
+        }
+    }
+
+    public <T extends Event> void registerHandle(Class<T> eventType, EventHandler<T> handler)
+    {
+        List<Subscription> subList = subscribers.get(eventType);
+        if(subList==null)
+        {
+            subList=new ArrayList<>();
+            subscribers.put(eventType, subList);
+        }
+        subList.add(new Subscription(handler));
+        System.out.println("Registered via handler: " + handler.getClass().getName() + " for " + eventType.getName());
     }
 }
 
@@ -72,11 +135,17 @@ class Subscription
 {
     private Object subscriber;
     private Method method;
+    private EventHandler<?> handler;
 
     public Subscription(Object subscriber, Method method)
     {
         this.subscriber = subscriber;
         this.method=method;
+    }
+
+    public <T extends Event> Subscription(EventHandler<T> handler)
+    {
+        this.handler=handler;
     }
 
     public Method getMethod()
@@ -87,6 +156,11 @@ class Subscription
     public Object getSubscriber()
     {
         return subscriber;
+    }
+
+    public EventHandler<?> getHandler() 
+    {
+        return handler;
     }
 }
 
@@ -351,32 +425,40 @@ public class ReflectedEventBus
         eventBus.register(display2);
         eventBus.register(human);
 
-        eventBus.post(new TemperatureEvent(tempSensor, 28));
+        eventBus.registerHandle(TemperatureEvent.class, event -> 
+        {
+            System.out.println("[Explicit] Handling temperature event: " + event.getTemperature());
+        });
 
-        eventBus.post(new WaterLevelEvent(waterSensor, 50)); 
+        eventBus.registerHandle(WaterLevelEvent.class, event -> 
+        {
+            System.out.println("[Explicit] Water level detected: " + event.getWaterLevel());
+        });
+
+        eventBus.post(new TemperatureEvent(tempSensor, 28));
+        eventBus.post(new WaterLevelEvent(waterSensor, 50));
 
         eventBus.post(new SportsNewsEvent(newsAgency, "Epic sports victory!"));
         eventBus.post(new PoliticalNewsEvent(newsAgency, "Election updates!"));
         eventBus.post(new CultureNewsEvent(newsAgency, "New art exhibition!"));
 
-        for(int i=0; i<5; i++)
+        for (int i = 0; i < 5; i++) 
         {
             tempSensor.generateTemperature();
             waterSensor.generateWaterLevel();
-
             System.out.println();
 
-            try
+            try 
             {
                 Thread.sleep(100);
-            }
-            catch(InterruptedException e)
+            } 
+            catch (InterruptedException e) 
             {
                 e.printStackTrace();
             }
         }
-        System.out.println();
 
+        System.out.println();
         newsAgency.publishNews("political");
         newsAgency.publishNews("sports");
         newsAgency.publishNews("culture");
