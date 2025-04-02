@@ -1,10 +1,16 @@
+import java.lang.annotation.Retention;
+import java.lang.annotation.RetentionPolicy;
+import java.lang.annotation.Target;
+import java.lang.annotation.ElementType;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.util.*;
 
-interface Event{}
-
+@Target({ElementType.METHOD})
+@Retention(RetentionPolicy.RUNTIME)
 @interface Subscribe{}
+
+interface Event{}
 
 interface EventHandler<T extends Event> 
 {
@@ -111,10 +117,6 @@ class EventBusImpl
 
         System.out.println("Posting event: " + event.getClass().getName());
         System.out.println("Subscribers found: " + subList.size());
-        for (Subscription sub : subList) 
-        {
-            System.out.println(" -> Notifying: " + sub.getSubscriber().getClass().getName());
-        }
     }
 
     public <T extends Event> void registerHandle(Class<T> eventType, EventHandler<T> handler)
